@@ -39,6 +39,19 @@ pip install -e ".[openai]"       # + ChatGPT backend
 
 Rules mode and the `local` backend need **no third-party dependencies**.
 
+### Put `sanitext` on your PATH
+
+After `pip install -e .`, the console script lands in your Python user-scripts
+dir. To get a one-word `sanitext` from any shell, copy the launchers in `bin/`
+to a directory on your PATH (e.g. `~/.local/bin`):
+
+```bash
+cp bin/sanitext.cmd bin/sanitext ~/.local/bin/   # Windows .cmd + WSL/bash shim
+```
+
+The `.cmd` calls the installed console script directly, so it works from any
+working directory — including a directory that contains a `sanitext/` subfolder.
+
 ## Usage
 
 ```bash

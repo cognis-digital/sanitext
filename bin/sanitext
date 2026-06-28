@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# sanitext — WSL/Ubuntu launcher. Delegates to the Windows .cmd via cmd.exe
+# interop so the same editable install is used. Reachable from WSL because
+# C:\Users\user\.local\bin is on the Windows user PATH (inherited into WSL).
+exec cmd.exe /c "C:\\Users\\user\\.local\\bin\\sanitext.cmd" "$@"
