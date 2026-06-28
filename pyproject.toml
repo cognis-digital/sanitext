@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sanitext"
+version = "0.1.0"
+description = "Turn raw/uncensored text into provider-acceptable text for Claude, ChatGPT, and other LLM providers."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["moderation", "sanitize", "compliance", "llm", "pii", "redaction"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Text Processing :: Filters",
+]
+dependencies = []
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.0"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+sanitext = "sanitext.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sanitext*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
