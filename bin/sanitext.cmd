@@ -1,16 +1,16 @@
 @echo off
 REM ============================================================
-REM  sanitext - ONE-WORD launcher: turn raw/uncensored text into
-REM  provider-acceptable text (Claude / ChatGPT / any channel).
-REM  Strips profanity, slurs, PII, secrets, hostile tone.
+REM  sanitext - ONE-WORD launcher: defensive Unicode-security
+REM  text sanitizer. Detects/strips bidi (Trojan-Source), zero-width,
+REM  control chars, and homoglyphs, plus optional PII/secret redaction.
 REM
 REM  Usage:
-REM    sanitext file.txt                 clean a file (offline rules)
-REM    type raw.txt | sanitext           clean from stdin
-REM    cog4 cc "draft" | sanitext -p claude
-REM    sanitext file.txt --check -p openai   score only; exit 1 if not OK
-REM    sanitext file.txt --mode llm --backend local --model omnicoder
-REM    sanitext file.txt --json          machine-readable {clean, report}
+REM    sanitext scan file.txt            report; exit 1 if dangerous chars
+REM    sanitext clean file.txt           emit cleaned text
+REM    type raw.txt | sanitext scan -    scan from stdin
+REM    sanitext scan file.txt --json     machine-readable findings
+REM    sanitext scan file.txt --sarif    SARIF 2.1.0 for code scanning
+REM    sanitext normalize file.txt       legacy profanity/tone/PII normalizer
 REM
 REM  Calls the editable-installed console script directly so it works
 REM  from any CWD (incl. C:\Users\user). Lives on PATH at ~/.local/bin.

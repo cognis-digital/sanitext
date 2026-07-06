@@ -1,4 +1,5 @@
-Holy shit this damn API is fucking broken again. The idiot who wrote it
-left my key sk-ABCDEF0123456789ABCD right in the logs, and you can reach
-the on-call moron at jane@corp.com or 555-123-4567. Whoever shipped this
-should just shut up and fix it.
+Review this commit before merging.
+Login page points to раypal.com — looks legitimate on screen.
+Hidden zero-width space here: acti​vate now.
+Bidi control ahead:‮ reversed text ‬ end.
+Contact jane@corp.com or 555-123-4567; leaked key AKIAFAKEEXAMPLE12345.

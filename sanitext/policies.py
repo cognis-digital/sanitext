@@ -1,10 +1,10 @@
-"""Provider policy profiles.
+"""Provider policy profiles (used by the optional normalizer layer).
 
-A profile describes what a given destination (Claude, ChatGPT, a generic public
-channel) considers acceptable, and how to weight each finding category when
-scoring. Profiles are deliberately close to one another -- the major providers
-share the same baseline (no slurs, no leaked secrets, no abuse) -- but the
-weights and pass threshold can be tuned per destination.
+A profile describes what a given destination (a generic public channel, or any
+LLM provider endpoint) considers acceptable, and how to weight each finding
+category when scoring. Profiles are deliberately close to one another -- the
+common baseline is no slurs, no leaked secrets, no abuse -- but the weights and
+pass threshold can be tuned per destination.
 """
 
 from __future__ import annotations
@@ -39,21 +39,14 @@ PROFILES: dict[str, Policy] = {
         blocking=frozenset({"secret", "slur"}),
         weights=dict(_BASE_WEIGHTS),
         threshold=80,
-        description="any public AI provider or shared channel",
+        description="any public channel or LLM provider endpoint",
     ),
-    "claude": Policy(
-        name="claude",
-        blocking=frozenset({"secret", "slur"}),
+    "strict": Policy(
+        name="strict",
+        blocking=frozenset({"secret", "slur", "hostility"}),
         weights=dict(_BASE_WEIGHTS),
-        threshold=80,
-        description="Anthropic's Claude (claude.ai / API)",
-    ),
-    "openai": Policy(
-        name="openai",
-        blocking=frozenset({"secret", "slur"}),
-        weights=dict(_BASE_WEIGHTS),
-        threshold=80,
-        description="OpenAI's ChatGPT / API",
+        threshold=90,
+        description="a strict destination that also rejects hostile tone",
     ),
 }
 

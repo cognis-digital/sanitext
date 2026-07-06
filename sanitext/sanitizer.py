@@ -1,4 +1,9 @@
-"""Rule-based sanitization: rewrite text by applying detector replacements."""
+"""Rule-based normalization (optional layer): apply detector replacements.
+
+This is the legacy provider-normalizer engine (profanity/tone/PII). The flagship
+product is the Unicode-security scanner in :mod:`sanitext.core`; this module is
+kept as an optional convenience for tone/profanity cleanup.
+"""
 
 from __future__ import annotations
 

@@ -1,27 +1,51 @@
-"""sanitext -- turn raw/uncensored text into provider-acceptable text.
+"""sanitext -- defensive Unicode-security text sanitizer.
 
-Takes raw model output (profanity, slurs, PII, secrets, hostile tone) and
-produces clean, professional prose you can safely paste into Claude, ChatGPT,
-or any public channel. Two engines:
+Pasted, committed, or ingested text can carry invisible attacks that survive
+human review:
 
-    sanitize()  -- offline, deterministic rule-based redaction/substitution
-    rewrite()   -- LLM re-authoring (local fleet / Anthropic / OpenAI)
+  * **bidi / Trojan-Source controls** (CVE-2021-42574) that reorder how source
+    or prose *renders* versus how it *executes*;
+  * **zero-width & invisible** characters used to smuggle or watermark content;
+  * **control characters** (C0/C1); and
+  * **homoglyphs / confusables** (Unicode UTS #39) that spoof ASCII identifiers,
+    domains, and package names.
 
-This is a compliance normalizer, not a filter-evasion tool: the goal is to make
-text genuinely acceptable, not to slip prohibited content past safety systems.
+sanitext detects, reports (with per-character offsets, code points, and Unicode
+names), and strips/normalizes these -- with an optional PII/secret redaction
+layer on top. Standard-library only core.
+
+Primary API::
+
+    from sanitext import scan, clean
+    result = scan(text)          # ScanResult: .findings, .clean, .dangerous
+    cleaned = clean(text)        # just the cleaned string
+
+The legacy provider-normalizer API (``sanitize`` / optional LLM ``rewrite``)
+remains available for tone/profanity cleanup, but the Unicode-security layer is
+the headline product.
 """
 
 from __future__ import annotations
 
-from .policies import PROFILES, Policy, get as get_policy
-from .report import Report
-from .rewriter import rewrite
+from .core import ScanOptions, ScanResult, clean, scan
+from .policies import PROFILES, Policy
+from .policies import get as get_policy
+from .report import Report, render_scan
 from .sanitizer import Lexicon, Result, sanitize
+from .unicode_scan import UFinding, UnicodeScanOptions
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
+    # flagship Unicode-security API
+    "scan",
+    "clean",
+    "ScanResult",
+    "ScanOptions",
+    "UFinding",
+    "UnicodeScanOptions",
+    "render_scan",
+    # legacy provider-normalizer API
     "sanitize",
-    "rewrite",
     "Lexicon",
     "Result",
     "Report",
@@ -30,3 +54,12 @@ __all__ = [
     "get_policy",
     "__version__",
 ]
+
+
+def __getattr__(name: str):
+    # Lazily expose the optional LLM rewriter without importing it eagerly.
+    if name == "rewrite":
+        from .rewriter import rewrite
+
+        return rewrite
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

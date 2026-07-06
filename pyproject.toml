@@ -4,21 +4,47 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sanitext"
-version = "0.1.0"
-description = "Turn raw/uncensored text into provider-acceptable text for Claude, ChatGPT, and other LLM providers."
+version = "0.2.0"
+description = "Defensive Unicode-security text sanitizer: detect and strip bidi/Trojan-Source, zero-width, control chars, and homoglyphs, plus optional PII/secret redaction."
 readme = "README.md"
-requires-python = ">=3.9"
-license = { text = "MIT" }
-keywords = ["moderation", "sanitize", "compliance", "llm", "pii", "redaction"]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Cognis Digital LLC" }]
+keywords = [
+    "security",
+    "unicode",
+    "homoglyph",
+    "confusables",
+    "trojan-source",
+    "bidi",
+    "zero-width",
+    "sanitize",
+    "pii",
+    "redaction",
+    "sarif",
+]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Security",
     "Topic :: Text Processing :: Filters",
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/cognis-digital/sanitext"
+Repository = "https://github.com/cognis-digital/sanitext"
+Issues = "https://github.com/cognis-digital/sanitext/issues"
+
 [project.optional-dependencies]
-anthropic = ["anthropic>=0.40"]
+# Optional LLM re-authoring via any OpenAI-compatible endpoint (hosted or local).
 openai = ["openai>=1.0"]
 dev = ["pytest>=7"]
 
