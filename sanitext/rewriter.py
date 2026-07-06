@@ -1,18 +1,18 @@
-"""LLM-backed rewriting.
+"""Optional LLM-backed rewriting (secondary to the Unicode-security core).
 
-Where the rule-based sanitizer redacts/substitutes tokens, the rewriter asks a
-model to *re-author* the text into clean, professional, provider-acceptable
-prose while preserving meaning. Use it when token-level scrubbing reads badly
-and you want fluent output.
+Where the rule-based normalizer redacts/substitutes tokens, the rewriter asks a
+model to *re-author* text into clean, neutral prose while preserving meaning.
+This is an optional convenience layer -- the headline product is the offline
+Unicode-security scanner, which needs no network and no model.
 
-Backends:
-    local      -> an Ollama-compatible server (default: http://localhost:11434),
-                  e.g. your local fleet. No API key. stdlib HTTP only.
-    anthropic  -> Claude via the official `anthropic` SDK (model claude-opus-4-8).
-    openai     -> ChatGPT via the official `openai` SDK.
+Backends (provider-neutral):
+    local   -> a local, Ollama-compatible server (default http://localhost:11434).
+               No API key. Standard-library HTTP only.
+    openai  -> any OpenAI-compatible Chat Completions endpoint (hosted or local),
+               configured via OPENAI_API_KEY and optionally OPENAI_BASE_URL.
 
-The rewriter never tries to defeat a provider's safety system. Its job is the
-opposite: produce text the provider will accept because it is genuinely clean.
+The rewriter never tries to defeat a provider's safety system; its job is the
+opposite -- produce text that is genuinely clean.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ import urllib.request
 from .policies import Policy
 
 _SYSTEM_TEMPLATE = (
-    "You are a text compliance normalizer. You are given raw, possibly uncensored "
-    "text. Rewrite it so it is acceptable to post to {description}.\n"
+    "You are a text normalizer. You are given raw, possibly uncensored text. "
+    "Rewrite it so it is neutral and professional for {description}.\n"
     "Rules:\n"
     "- Preserve the author's meaning, facts, and intent.\n"
     "- Remove profanity, slurs, hateful or harassing language, and gratuitous "
@@ -43,14 +43,17 @@ def _system_prompt(policy: Policy) -> str:
 
 def rewrite(text: str, *, policy: Policy, backend: str = "local", model: str | None = None,
             base_url: str | None = None, timeout: float = 120.0) -> str:
+    """Re-author ``text`` via a local or OpenAI-compatible endpoint.
+
+    ``backend`` is ``"local"`` (Ollama-compatible, default) or ``"openai"`` (any
+    OpenAI-compatible Chat Completions endpoint, hosted or self-hosted).
+    """
     system = _system_prompt(policy)
     if backend == "local":
         return _rewrite_local(text, system, model or "llama3.1", base_url, timeout)
-    if backend == "anthropic":
-        return _rewrite_anthropic(text, system, model or "claude-opus-4-8")
     if backend == "openai":
-        return _rewrite_openai(text, system, model or "gpt-4o-mini")
-    raise ValueError(f"unknown backend {backend!r}; choose local | anthropic | openai")
+        return _rewrite_openai(text, system, model or "gpt-4o-mini", base_url)
+    raise ValueError(f"unknown backend {backend!r}; choose local | openai")
 
 
 def _rewrite_local(text, system, model, base_url, timeout) -> str:
@@ -73,27 +76,21 @@ def _rewrite_local(text, system, model, base_url, timeout) -> str:
     return (data.get("message", {}).get("content") or "").strip()
 
 
-def _rewrite_anthropic(text, system, model) -> str:
-    try:
-        import anthropic
-    except ImportError as e:
-        raise RuntimeError("anthropic SDK not installed: pip install anthropic") from e
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
-    resp = client.messages.create(
-        model=model,
-        max_tokens=16000,
-        system=system,
-        messages=[{"role": "user", "content": text}],
-    )
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+def _rewrite_openai(text, system, model, base_url=None) -> str:
+    """Use any OpenAI-compatible Chat Completions endpoint.
 
-
-def _rewrite_openai(text, system, model) -> str:
+    Reads OPENAI_API_KEY (and optional OPENAI_BASE_URL) from the environment, so
+    it works against a hosted provider or a local OpenAI-compatible server.
+    """
     try:
         from openai import OpenAI
     except ImportError as e:
-        raise RuntimeError("openai SDK not installed: pip install openai") from e
-    client = OpenAI()  # reads OPENAI_API_KEY from env
+        raise RuntimeError("openai SDK not installed: pip install 'sanitext[openai]'") from e
+    kwargs = {}
+    env_base = base_url or os.environ.get("OPENAI_BASE_URL")
+    if env_base:
+        kwargs["base_url"] = env_base
+    client = OpenAI(**kwargs)  # reads OPENAI_API_KEY from env
     resp = client.chat.completions.create(
         model=model,
         messages=[
