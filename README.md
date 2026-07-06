@@ -1,153 +1,250 @@
 # sanitext
 
-Turn raw, uncensored text into **provider-acceptable** text — clean, professional
-output you can safely paste into **Claude**, **ChatGPT**, or any public channel.
+**Defensive Unicode-security text sanitizer.** Paste, commit, or ingested text
+can carry invisible attacks that survive human review: bidirectional control
+characters that reorder how source *renders* versus how it *executes*
+(**Trojan Source, CVE-2021-42574**), zero-width characters used to smuggle or
+watermark content, C0/C1 control characters, and **homoglyphs** that spoof
+ASCII identifiers, domains, and package names (**Unicode UTS #39**).
 
-Point it at the raw output of an uncensored local model (or any unfiltered text)
-and it strips profanity, slurs, hateful/harassing tone, personal data, and leaked
-secrets, then hands you something a content filter — and a human reader — will
-accept.
+sanitext **detects, reports, and strips/normalizes** these — with per-character
+offsets, code points, and Unicode names — plus an optional PII/secret redaction
+layer on top. The core is **standard-library only**: no network, no model, no
+third-party runtime dependencies.
 
-> **Scope.** sanitext is a *compliance normalizer*, not a filter-evasion tool. It
-> makes text genuinely acceptable (removes the disallowed content); it does **not**
-> try to sneak prohibited content past a provider's safety systems.
+```text
+$ sanitext scan trojan.c
+Unicode-security findings (2):
+    off  codepoint  cat         gc   action      name
+     24  U+202E     bidi        Cf   stripped    RIGHT-TO-LEFT OVERRIDE
+     34  U+202C     bidi        Cf   stripped    POP DIRECTIONAL FORMATTING
+Before/after:
+  before: if·access_level·!=·"user··//·Check·"·{
+  after : if·access_level·!=·"user·//·Check"·{
+Verdict: DANGEROUS  (bidi=2)
+$ echo $?
+1
+```
 
-## Why
+`scan` exits **nonzero** when dangerous characters are present, so it drops
+straight into a pre-commit hook or CI step.
 
-Local uncensored models are great for drafting, but their output often carries
-expletives, hostile phrasing, or accidentally-pasted secrets that get a request
-refused — or that you simply don't want to publish. sanitext is the cleanup pass
-between "raw draft" and "ready to send."
+## Why this matters
 
-## Two engines
+- **Trojan Source (CVE-2021-42574).** Bidi override/isolate characters
+  (U+202A–U+202E, U+2066–U+2069) let an attacker make a code comment or string
+  *render* one way while the compiler reads the logical byte order — an
+  invisible logic bomb that passes code review. See
+  [`docs/TROJAN-SOURCE.md`](docs/TROJAN-SOURCE.md).
+- **Zero-width smuggling.** ZWSP/ZWNJ/ZWJ/BOM/word-joiner/soft-hyphen and
+  variation selectors break tokens apart (evading naive filters) or watermark
+  copied text invisibly.
+- **Homoglyph spoofing.** `раypal.com` looks identical to `paypal.com` but the
+  first two letters are Cyrillic. Same trick spoofs usernames, package names,
+  and code identifiers. See [`docs/CONFUSABLES.md`](docs/CONFUSABLES.md).
+- **Control characters.** C0/C1 controls corrupt logs and enable
+  terminal-escape injection.
 
-| Engine | Flag | What it does | Network |
+## What it detects
+
+| Category | What | Default action | Standard |
 |---|---|---|---|
-| **Rules** | `--mode rules` (default) | Deterministic detect → redact/substitute. Profanity softened, slurs/secrets/PII redacted. | none |
-| **LLM** | `--mode llm` | A model re-authors the text into fluent, clean prose preserving meaning. | yes |
+| `bidi` | LRE/RLE/LRO/RLO/PDF, LRI/RLI/FSI/PDI, LRM/RLM/ALM | **strip** | CVE-2021-42574, UAX #9 |
+| `zero_width` | ZWSP, ZWNJ, ZWJ, BOM/ZWNBSP, word joiner, soft hyphen, invisible math ops, Hangul fillers | **strip** | Unicode Cf |
+| `invisible` | variation selectors (VS1–VS256), tag chars, other Cf format chars | **strip** | Unicode Cf |
+| `control` | C0/C1 controls except `\t \n \r` | **strip** | Unicode Cc |
+| `homoglyph` | non-ASCII code points confusable with ASCII/Latin | **normalize** to ASCII skeleton | UTS #39 |
+| `pii` / `secret` | email, phone, SSN, IPv4, API keys, tokens | **redact** | (optional layer) |
 
-LLM backends: `local` (Ollama-compatible, e.g. your local fleet — default),
-`anthropic` (Claude, `claude-opus-4-8`), `openai` (ChatGPT).
+The `bidi`, `zero_width`, `invisible`, and `control` categories mark text as
+**dangerous** (nonzero exit). Homoglyphs are reported and normalized but do not
+fail the gate by default (they are common in legitimate prose).
 
 ## Install
 
 ```bash
-pip install -e .                 # core (rules mode, local LLM backend)
-pip install -e ".[anthropic]"    # + Claude backend
-pip install -e ".[openai]"       # + ChatGPT backend
+pip install -e .                 # core scanner (stdlib only)
+pip install -e ".[dev]"          # + pytest
+pip install -e ".[openai]"       # + optional LLM re-authoring layer
 ```
 
-Rules mode and the `local` backend need **no third-party dependencies**.
+Requires Python **3.10+**. The scanner needs no third-party dependencies.
 
 ### Put `sanitext` on your PATH
 
-After `pip install -e .`, the console script lands in your Python user-scripts
-dir. To get a one-word `sanitext` from any shell, copy the launchers in `bin/`
-to a directory on your PATH (e.g. `~/.local/bin`):
+After `pip install -e .`, the console script `sanitext` is installed. To get a
+one-word command from any shell, the repo also ships launchers in `bin/`:
 
 ```bash
 cp bin/sanitext.cmd bin/sanitext ~/.local/bin/   # Windows .cmd + WSL/bash shim
 ```
 
-The `.cmd` calls the installed console script directly, so it works from any
-working directory — including a directory that contains a `sanitext/` subfolder.
+See the [cross-platform section](#cross-platform) for macOS/Linux/Windows and
+Docker.
 
 ## Usage
 
 ```bash
-# Clean a file with offline rules
-sanitext examples/sample_in.txt
+# Scan a file — report findings; exit 1 if dangerous chars are present (CI gate)
+sanitext scan path/to/file.txt
 
-# Pipe from your uncensored model straight into a clean result
-cog4 cc "draft the incident note" | sanitext --provider claude
+# Clean a file — emit sanitized text to stdout
+sanitext clean path/to/file.txt
 
-# Just score it — exit 1 if it wouldn't be acceptable (good for CI / hooks)
-sanitext examples/sample_in.txt --check --provider openai
+# From stdin
+git show HEAD:src/app.py | sanitext scan -
 
-# Fluent rewrite via your local fleet
-sanitext examples/sample_in.txt --mode llm --backend local --model omnicoder
+# Machine-readable
+sanitext scan file.txt --json
+sanitext scan file.txt --sarif        # SARIF 2.1.0 for GitHub code scanning
 
-# Fluent rewrite via Claude
-ANTHROPIC_API_KEY=... sanitext input.txt --mode llm --backend anthropic
+# Category toggles
+sanitext scan file.txt --no-homoglyph --no-pii
+sanitext clean file.txt --flag-only-homoglyphs   # report homoglyphs, keep them
 
-# Full machine-readable output
-sanitext input.txt --json
+# Legacy provider-normalizer (profanity/tone/PII cleanup)
+sanitext normalize file.txt --report
 ```
 
-### Example
+### JSON output (real)
 
-Input (`examples/sample_in.txt`):
-
-> Holy shit this damn API is fucking broken again. The idiot who wrote it left my
-> key sk-ABCDEF0123456789ABCD right in the logs, and you can reach the on-call
-> moron at jane@corp.com or 555-123-4567. Whoever shipped this should just shut up
-> and fix it.
-
-`sanitext examples/sample_in.txt --report` →
-
-> Holy junk this darn API is very broken again. The idiot who wrote it left my key
-> [redacted-secret] right in the logs, and you can reach the on-call moron at
-> [redacted-email] or [redacted-phone]. Whoever shipped this should please hold on
-> and fix it.
-
-```
-[generic] NOT ACCEPTABLE  score=0/100 (threshold 80)
-  blocked by: secret
-  findings: hostility=1, pii=2, profanity=3, secret=1
-```
-
-The secret is redacted *and* flagged as blocking — so you know to scrub it at the
-source, not just in the copy. (Use `--mode llm` for fluent rephrasing instead of
-token substitution.)
-
-## Library
-
-```python
-from sanitext import sanitize, rewrite, get_policy
-
-result = sanitize(raw_text, provider="claude")
-print(result.clean)              # cleaned text
-print(result.report.summary())   # score + findings
-print(result.report.acceptable)  # bool
-
-# LLM re-authoring
-clean = rewrite(raw_text, policy=get_policy("openai"), backend="local", model="omnicoder")
-```
-
-## Provider profiles
-
-`generic`, `claude`, `openai` — each defines blocking categories (secrets, slurs),
-per-category penalty weights, and a pass threshold. They share the same baseline;
-tune weights/threshold per destination in `sanitext/policies.py`.
-
-## Custom lexicons
-
-Built-in lists are intentionally small and ship **no slurs in source**. Supply
-your own with `--lexicon lex.json`:
-
-```json
+```console
+$ sanitext scan -t "раypal.com" --json
 {
-  "profanity": { "frobnicate": "process" },
-  "slurs": ["term-to-redact"],
-  "softeners": { "this is garbage": "this needs work" }
+  "dangerous": false,
+  "counts": { "homoglyph": 2 },
+  "clean": "paypal.com",
+  "unicode_findings": [
+    {
+      "offset": 0, "char": "р", "codepoint": "U+0440",
+      "name": "CYRILLIC SMALL LETTER ER", "category": "homoglyph",
+      "unicode_category": "Ll", "severity": "medium",
+      "action": "normalized", "replacement": "p",
+      "detail": "confusable with ASCII 'p' (UTS #39)"
+    },
+    {
+      "offset": 1, "char": "а", "codepoint": "U+0430",
+      "name": "CYRILLIC SMALL LETTER A", "category": "homoglyph",
+      "unicode_category": "Ll", "severity": "medium",
+      "action": "normalized", "replacement": "a",
+      "detail": "confusable with ASCII 'a' (UTS #39)"
+    }
+  ],
+  "pii_findings": []
 }
 ```
 
-Entries merge over (and override) the built-ins. `slurs` are always redacted,
-never softened.
+## Library API
 
-## Detected categories
+```python
+from sanitext import scan, clean
 
-`profanity` (softened) · `hostility` (softened) · `slur` (redacted) ·
-`pii` — email, phone, SSN, IPv4 (redacted) · `secret` — OpenAI/Anthropic/AWS/
-GitHub/Slack keys, bearer tokens (redacted, blocking).
+result = scan(text)
+result.findings        # list[UFinding]: offset, codepoint, name, category, action
+result.clean           # sanitized string
+result.dangerous       # bool — True if bidi/zero-width/invisible/control found
+result.to_dict()       # JSON-ready dict
 
-## Test
+clean(text)            # -> cleaned string (convenience)
+```
+
+Fine-grained control:
+
+```python
+from sanitext import scan, ScanOptions, UnicodeScanOptions
+
+opts = ScanOptions(
+    unicode=UnicodeScanOptions(homoglyph=True, normalize_homoglyphs=False),
+    pii=True,
+)
+scan(text, opts)
+```
+
+SARIF export:
+
+```python
+from sanitext import scan
+from sanitext.sarif import to_sarif
+import json
+
+print(json.dumps(to_sarif(scan(text), artifact_uri="app.py"), indent=2))
+```
+
+## Use as a CI gate
+
+```yaml
+# .github/workflows/text-hygiene.yml
+- run: pip install -e .
+- run: |
+    git ls-files '*.py' '*.md' | while read f; do
+      sanitext scan "$f" || exit 1
+    done
+```
+
+`sanitext scan` returns exit code **1** when dangerous characters are found,
+**0** otherwise — the same pattern works in a `pre-commit` hook.
+
+## Optional PII / secret layer
+
+The scanner reuses the built-in detectors for email, phone, SSN, IPv4, and
+common credential shapes (OpenAI/AWS/GitHub/Slack keys, bearer tokens) and
+redacts them alongside the Unicode cleanup. Disable with `--no-pii`. Details in
+[`docs/PII.md`](docs/PII.md).
+
+## Optional LLM re-authoring
+
+For fluent rephrasing instead of token substitution, an optional layer can call
+a **generic, OpenAI-compatible endpoint** (hosted or a local server) — this is
+secondary to the offline scanner and needs the `[openai]` extra plus your own
+endpoint/key. It never tries to defeat a provider's safety system.
+
+<a name="cross-platform"></a>
+## Cross-platform
+
+Pure-Python, stdlib-only core. All file I/O uses UTF-8 with a replacement
+fallback (a scanner must tolerate malformed input), and CLI output reconfigures
+stdout to UTF-8 with `errors="replace"` so it prints on Windows cp1252 consoles
+without crashing.
 
 ```bash
-pytest
+# macOS / Linux
+./install.sh
+
+# Windows (PowerShell)
+./install.ps1
+
+# Make
+make install && make test && make demos
+
+# Docker
+docker build -t sanitext . && docker run --rm sanitext scan -t "x‮y"
 ```
+
+## Documentation
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — modules and data flow
+- [`docs/TROJAN-SOURCE.md`](docs/TROJAN-SOURCE.md) — the bidi attack + CVE-2021-42574
+- [`docs/CONFUSABLES.md`](docs/CONFUSABLES.md) — UTS #39, the skeleton transform, curated-subset note
+- [`docs/PII.md`](docs/PII.md) — the optional PII/secret layer
+
+## Demos & tests
+
+```bash
+python demos/run_all.py     # runs 8 offline demos; exits 0
+python -m pytest -q         # 149 tests
+```
+
+## Threat model (honest scope)
+
+sanitext defends against **text-based Unicode abuse and pattern-matchable
+PII/secrets**. It is **not** an antivirus, not a full DLP suite, and homoglyph
+coverage is a documented **curated subset** of the Unicode confusables table
+(184 explicit mappings plus NFKC folding), not the full ~6000-entry table — see
+[`docs/CONFUSABLES.md`](docs/CONFUSABLES.md). PII detection is regex-based and
+will miss unusual formats. Treat it as a strong first line, not a guarantee.
 
 ## License
 
-MIT
+Source-available under the **Cognis Open Collaboration License (COCL) v1.0** —
+see [`LICENSE`](LICENSE) and [`DISCLAIMER.md`](DISCLAIMER.md). Free for
+non-commercial use; commercial use requires a separate license.

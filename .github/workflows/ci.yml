@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Run demos (must exit 0)
+        run: python demos/run_all.py
+
+      - name: CLI smoke test — scan a bidi sample must exit nonzero
+        run: |
+          python - <<'PY'
+          import subprocess, sys
+          sample = "if x != ‮gelivirp‬) {"
+          p = subprocess.run([sys.executable, "-m", "sanitext", "scan", "-t", sample])
+          assert p.returncode == 1, f"expected exit 1 on bidi sample, got {p.returncode}"
+          print("OK: dangerous input -> exit 1")
+          PY
+
+      - name: CLI smoke test — cleaned output re-scans clean (exit 0)
+        run: |
+          python - <<'PY'
+          import subprocess, sys
+          sample = "if x != ‮gelivirp‬) {"
+          clean = subprocess.run(
+              [sys.executable, "-m", "sanitext", "clean", "-t", sample],
+              capture_output=True, text=True, check=True,
+          ).stdout.strip()
+          p = subprocess.run([sys.executable, "-m", "sanitext", "scan", "-t", clean])
+          assert p.returncode == 0, f"expected exit 0 on cleaned text, got {p.returncode}"
+          print("OK: cleaned input -> exit 0")
+          PY
+
+      - name: CLI smoke test — SARIF output is valid 2.1.0 JSON
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          sample = "call(раypal) ‮"
+          # scan exits 1 on dangerous input; we only care that SARIF is emitted.
+          out = subprocess.run(
+              [sys.executable, "-m", "sanitext", "scan", "-t", sample, "--sarif"],
+              capture_output=True, text=True,
+          ).stdout
+          data = json.loads(out)
+          assert data["version"] == "2.1.0", data.get("version")
+          assert data["runs"][0]["tool"]["driver"]["name"] == "sanitext"
+          print("OK: SARIF 2.1.0 emitted")
+          PY
