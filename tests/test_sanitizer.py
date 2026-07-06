@@ -11,7 +11,7 @@ def test_profanity_is_softened():
 
 
 def test_secret_is_redacted_and_blocks():
-    r = sanitize("my key is sk-ABCDEF0123456789ABCD", provider="claude")
+    r = sanitize("my key is sk-ABCDEF0123456789ABCD", provider="generic")
     assert "sk-ABCDEF" not in r.clean
     assert "[redacted-secret]" in r.clean
     assert not r.report.acceptable
